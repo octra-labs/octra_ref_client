@@ -2,7 +2,7 @@
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-═══╝"
+
 echo ""
 echo "  dir: $DIR"
 echo ""
