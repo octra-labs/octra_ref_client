@@ -1566,7 +1566,7 @@ async def scan_and_claim_stealth():
             at(x + 2, claim_y + 6, f"bound_proof = {len(zero_proof_str)}B ({dt_cl:.1f}s)", c['g'])
             sys.stdout.flush()
 
-            at(x + 2, claim_y + 4, f"[3/3] submitting claim tx...                    ", c['y'])
+            at(x + 2, claim_y + 4, f"[3/3] submitting claim tx...", c['y'])
             sys.stdout.flush()
 
             claim_data = {
