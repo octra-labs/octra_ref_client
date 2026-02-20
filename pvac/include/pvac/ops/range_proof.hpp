@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 #include <array>
+#include <thread>
+#include <algorithm>
 
 #include "../core/types.hpp"
 #include "verify_zero.hpp"
@@ -34,20 +36,44 @@ inline RangeProof make_range_proof(
     rp.ct_bit.resize(RANGE_BITS);
     rp.bit_proofs.resize(RANGE_BITS);
 
-    for (size_t i = 0; i < RANGE_BITS; ++i) {
-        uint64_t b_i = (value >> i) & 1;
+    unsigned hw = std::thread::hardware_concurrency();
+    unsigned n_threads = (hw > 1) ? std::min(hw, (unsigned)RANGE_BITS) : 1;
 
-        rp.ct_bit[i] = enc_value(pk, sk, b_i);
+    if (n_threads <= 1) {
+        for (size_t i = 0; i < RANGE_BITS; ++i) {
+            uint64_t b_i = (value >> i) & 1;
+            rp.ct_bit[i] = enc_value(pk, sk, b_i);
+            auto ct_b_m1 = ct_sub_const(pk, rp.ct_bit[i], (uint64_t)1);
+            uint8_t mul_seed[32];
+            for (int k = 0; k < 32; ++k)
+                mul_seed[k] = (uint8_t)((i * 37 + k * 13 + 0xA0) & 0xFF);
+            auto ct_check = ct_mul_seeded(pk, rp.ct_bit[i], ct_b_m1, mul_seed);
+            rp.bit_proofs[i] = make_zero_proof(pk, sk, ct_check);
+        }
+    } else {
+        auto worker = [&](size_t from, size_t to) {
+            for (size_t i = from; i < to; ++i) {
+                uint64_t b_i = (value >> i) & 1;
+                rp.ct_bit[i] = enc_value(pk, sk, b_i);
+                auto ct_b_m1 = ct_sub_const(pk, rp.ct_bit[i], (uint64_t)1);
+                uint8_t mul_seed[32];
+                for (int k = 0; k < 32; ++k)
+                    mul_seed[k] = (uint8_t)((i * 37 + k * 13 + 0xA0) & 0xFF);
+                auto ct_check = ct_mul_seeded(pk, rp.ct_bit[i], ct_b_m1, mul_seed);
+                rp.bit_proofs[i] = make_zero_proof(pk, sk, ct_check);
+            }
+        };
 
-        auto ct_b_m1 = ct_sub_const(pk, rp.ct_bit[i], (uint64_t)1);
-
-        uint8_t mul_seed[32];
-        for (int k = 0; k < 32; ++k)
-            mul_seed[k] = (uint8_t)((i * 37 + k * 13 + 0xA0) & 0xFF);
-
-        auto ct_check = ct_mul_seeded(pk, rp.ct_bit[i], ct_b_m1, mul_seed);
-
-        rp.bit_proofs[i] = make_zero_proof(pk, sk, ct_check);
+        std::vector<std::thread> threads;
+        size_t chunk = (RANGE_BITS + n_threads - 1) / n_threads;
+        for (unsigned t = 0; t < n_threads; ++t) {
+            size_t from = t * chunk;
+            size_t to = std::min(from + chunk, RANGE_BITS);
+            if (from < to)
+                threads.emplace_back(worker, from, to);
+        }
+        for (auto& th : threads)
+            th.join();
     }
 
     Cipher ct_sum = rp.ct_bit[0];
@@ -82,18 +108,45 @@ inline bool verify_range(
     if (rp.ct_bit.size() != RANGE_BITS) return false;
     if (rp.bit_proofs.size() != RANGE_BITS) return false;
 
-    for (size_t i = 0; i < RANGE_BITS; ++i) {
+    unsigned hw = std::thread::hardware_concurrency();
+    unsigned n_threads = (hw > 1) ? std::min(hw, (unsigned)RANGE_BITS) : 1;
+    std::vector<bool> results(RANGE_BITS, false);
 
-        auto ct_b_m1 = ct_sub_const(pk, rp.ct_bit[i], (uint64_t)1);
+    if (n_threads <= 1) {
+        for (size_t i = 0; i < RANGE_BITS; ++i) {
+            auto ct_b_m1 = ct_sub_const(pk, rp.ct_bit[i], (uint64_t)1);
+            uint8_t mul_seed[32];
+            for (int k = 0; k < 32; ++k)
+                mul_seed[k] = (uint8_t)((i * 37 + k * 13 + 0xA0) & 0xFF);
+            auto ct_check = ct_mul_seeded(pk, rp.ct_bit[i], ct_b_m1, mul_seed);
+            if (!verify_zero(pk, ct_check, rp.bit_proofs[i]))
+                return false;
+        }
+    } else {
+        auto worker = [&](size_t from, size_t to) {
+            for (size_t i = from; i < to; ++i) {
+                auto ct_b_m1 = ct_sub_const(pk, rp.ct_bit[i], (uint64_t)1);
+                uint8_t mul_seed[32];
+                for (int k = 0; k < 32; ++k)
+                    mul_seed[k] = (uint8_t)((i * 37 + k * 13 + 0xA0) & 0xFF);
+                auto ct_check = ct_mul_seeded(pk, rp.ct_bit[i], ct_b_m1, mul_seed);
+                results[i] = verify_zero(pk, ct_check, rp.bit_proofs[i]);
+            }
+        };
 
-        uint8_t mul_seed[32];
-        for (int k = 0; k < 32; ++k)
-            mul_seed[k] = (uint8_t)((i * 37 + k * 13 + 0xA0) & 0xFF);
+        std::vector<std::thread> threads;
+        size_t chunk = (RANGE_BITS + n_threads - 1) / n_threads;
+        for (unsigned t = 0; t < n_threads; ++t) {
+            size_t from = t * chunk;
+            size_t to = std::min(from + chunk, RANGE_BITS);
+            if (from < to)
+                threads.emplace_back(worker, from, to);
+        }
+        for (auto& th : threads)
+            th.join();
 
-        auto ct_check_recomputed = ct_mul_seeded(pk, rp.ct_bit[i], ct_b_m1, mul_seed);
-
-        if (!verify_zero(pk, ct_check_recomputed, rp.bit_proofs[i])) {
-            return false;
+        for (size_t i = 0; i < RANGE_BITS; ++i) {
+            if (!results[i]) return false;
         }
     }
 

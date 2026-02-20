@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-lambda0xe
-2026
-octra labs 
-for ref only
-"""
 
 
 import json, base64, hashlib, time, sys, re, os, shutil, asyncio, aiohttp, threading, ctypes, struct
@@ -31,8 +25,8 @@ def extract_error(j, fallback="unknown error"):
 
 class PvacClient:
     HFHE_PREFIX = "hfhe_v1|"
-    RP_PREFIX = "rp_v1|"
-    ZP_PREFIX = "zp_v1|"
+    RP_PREFIX   = "rp_v1|"
+    ZP_PREFIX   = "zp_v1|"
     ZKZP_PREFIX = "zkzp_v2|"
 
     def __init__(self, wallet_priv_b64):
@@ -69,13 +63,9 @@ class PvacClient:
 
     def _setup_ffi(self):
         L = self._lib
-
-        # params
         L.pvac_default_params.restype = ctypes.c_void_p
         L.pvac_keygen_from_seed.argtypes = [ctypes.c_void_p, ctypes.c_uint8 * 32,
                                              ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p)]
-
-    
         L.pvac_enc_value_seeded.restype = ctypes.c_void_p
         L.pvac_enc_value_seeded.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint8 * 32]
         L.pvac_enc_zero_seeded.restype = ctypes.c_void_p
@@ -109,14 +99,10 @@ class PvacClient:
         L.pvac_make_range_proof.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
         L.pvac_verify_range.restype = ctypes.c_int
         L.pvac_verify_range.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-
-        # zero proof (Bulletproofs R1CS circuit)
         L.pvac_make_zero_proof.restype = ctypes.c_void_p
         L.pvac_make_zero_proof.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
         L.pvac_verify_zero.restype = ctypes.c_int
         L.pvac_verify_zero.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-
-        # bound zero proof
         L.pvac_make_zero_proof_bound.restype = ctypes.c_void_p
         L.pvac_make_zero_proof_bound.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                                    ctypes.c_uint64, ctypes.c_uint8 * 32]
@@ -127,24 +113,29 @@ class PvacClient:
         L.pvac_pedersen_commit.restype = None
         L.pvac_pedersen_commit.argtypes = [ctypes.c_uint64, ctypes.c_uint8 * 32, ctypes.c_uint8 * 32]
 
+        # serialization — cipher
         L.pvac_serialize_cipher.restype = ctypes.POINTER(ctypes.c_uint8)
         L.pvac_serialize_cipher.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
         L.pvac_deserialize_cipher.restype = ctypes.c_void_p
         L.pvac_deserialize_cipher.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
 
+
         L.pvac_serialize_pubkey.restype = ctypes.POINTER(ctypes.c_uint8)
         L.pvac_serialize_pubkey.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+
 
         L.pvac_serialize_range_proof.restype = ctypes.POINTER(ctypes.c_uint8)
         L.pvac_serialize_range_proof.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
         L.pvac_deserialize_range_proof.restype = ctypes.c_void_p
         L.pvac_deserialize_range_proof.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
 
+
         L.pvac_serialize_zero_proof.restype = ctypes.POINTER(ctypes.c_uint8)
         L.pvac_serialize_zero_proof.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
         L.pvac_deserialize_zero_proof.restype = ctypes.c_void_p
         L.pvac_deserialize_zero_proof.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
 
+        # free
         L.pvac_free_params.argtypes = [ctypes.c_void_p]
         L.pvac_free_cipher.argtypes = [ctypes.c_void_p]
         L.pvac_free_bytes.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
@@ -157,7 +148,6 @@ class PvacClient:
     def make_seed(tx_hash, epoch_id, purpose):
         buf = f"OCTRA_FHE_SEED_V1|{tx_hash}|{epoch_id}|{purpose}"
         return hashlib.sha256(buf.encode()).digest()
-
 
 
     def encrypt(self, value, seed_bytes):
@@ -185,7 +175,6 @@ class PvacClient:
         return self._lib.pvac_enc_value_fp_seeded(
             self.pk, self.sk, ctypes.c_uint64(lo), ctypes.c_uint64(hi), seed_arr)
 
-
     def ct_add(self, ct_a, ct_b):
         return self._lib.pvac_ct_add(self.pk, ct_a, ct_b)
 
@@ -199,13 +188,11 @@ class PvacClient:
     def ct_scale(self, ct, scalar):
         return self._lib.pvac_ct_scale(self.pk, ct, ctypes.c_int64(scalar))
 
-
     def commit(self, ct_handle):
         """commit_ct(pk, ct) → 32 bytes."""
         out = (ctypes.c_uint8 * 32)()
         self._lib.pvac_commit_ct(self.pk, ct_handle, out)
         return bytes(out)
-
 
     def make_range_proof(self, ct_handle, value):
         """Prove ct encrypts value ∈ [0, 2^64).  Requires sk (client only)."""
@@ -223,7 +210,6 @@ class PvacClient:
         """Verify zero proof (pk only, no sk needed)."""
         return bool(self._lib.pvac_verify_zero(self.pk, ct_handle, zp_handle))
 
-
     def make_zero_proof_bound(self, ct_handle, amount, blinding_bytes):
         """Prove ct encrypts `amount` with Pedersen binding. Requires sk (client only).
         blinding_bytes: 32-byte random blinding factor."""
@@ -237,7 +223,6 @@ class PvacClient:
         out = (ctypes.c_uint8 * 32)()
         self._lib.pvac_pedersen_commit(ctypes.c_uint64(amount), blind_arr, out)
         return bytes(out)
-
 
     def _serialize_ptr(self, func, handle):
         sz = ctypes.c_size_t()
@@ -273,6 +258,7 @@ class PvacClient:
         arr = (ctypes.c_uint8 * len(data))(*data)
         return self._lib.pvac_deserialize_zero_proof(arr, ctypes.c_size_t(len(data)))
 
+
     def encode_cipher(self, ct_handle):
         raw = self.serialize_cipher(ct_handle)
         return self.HFHE_PREFIX + base64.b64encode(raw).decode()
@@ -303,7 +289,6 @@ class PvacClient:
     def free_zero_proof(self, zp_handle):
         if zp_handle:
             self._lib.pvac_free_zero_proof(zp_handle)
-
     def get_balance(self, cipher_str):
         """Decrypt an encoded cipher string to an integer value.
            Returns the correct value even when Fp.hi != 0 (negative in field).
@@ -317,11 +302,9 @@ class PvacClient:
         self.free_cipher(ct)
         if hi == 0:
             return lo
-        # Full Fp value: val = hi * 2^64 + lo,  p = 2^127 - 1
         p = (1 << 127) - 1
         val = (hi << 64) | lo
         if val > p // 2:
-            # Negative in field: true value = -(p - val)
             return -(p - val)
         return val
 
@@ -1566,7 +1549,7 @@ async def scan_and_claim_stealth():
             at(x + 2, claim_y + 6, f"bound_proof = {len(zero_proof_str)}B ({dt_cl:.1f}s)", c['g'])
             sys.stdout.flush()
 
-            at(x + 2, claim_y + 4, f"[3/3] submitting claim tx...", c['y'])
+            at(x + 2, claim_y + 4, f"[3/3] submitting claim tx...                    ", c['y'])
             sys.stdout.flush()
 
             claim_data = {
@@ -1820,7 +1803,3 @@ if __name__ == "__main__":
         cls()
         print(f"{c['r']}")
         os._exit(0)
-
-"""
-it was fucking difficult :D 
-"""
