@@ -31,8 +31,8 @@ def extract_error(j, fallback="unknown error"):
 
 class PvacClient:
     HFHE_PREFIX = "hfhe_v1|"
-    RP_PREFIX   = "rp_v1|"
-    ZP_PREFIX   = "zp_v1|"
+    RP_PREFIX = "rp_v1|"
+    ZP_PREFIX = "zp_v1|"
     ZKZP_PREFIX = "zkzp_v2|"
 
     def __init__(self, wallet_priv_b64):
